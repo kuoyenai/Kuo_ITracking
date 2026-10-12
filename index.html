@@ -432,6 +432,8 @@
                     <i class="fa-solid fa-volume-high" id="sound-icon"></i>
                 </button>
                 <button class="btn" onclick="exportData()"><i class="fa-solid fa-download"></i> 備份數據</button>
+                <button class="btn" onclick="document.getElementById('import-backup').click()"><i class="fa-solid fa-upload"></i> 還原</button>
+                <input id="import-backup" type="file" accept=".json,application/json" hidden onchange="importData(event)">
                 <button class="btn btn-primary" onclick="triggerManualSync()">
                     <i class="fa-solid fa-arrows-rotate" id="refresh-icon"></i> 數據刷新 (<span id="countdown-text">30</span>s)
                 </button>
@@ -496,7 +498,7 @@
                 <div class="section-title">
                     <i class="fa-solid fa-newspaper" style="color: #FF9800;"></i> 相關持倉市場重大焦點新聞
                 </div>
-                <span class="hint-text">每小時自動同步主流財經脈動</span>
+                <span class="hint-text">點擊查看新聞搜尋結果（非即時新聞 API）</span>
             </div>
             <div class="news-grid" id="news-container">
             </div>
@@ -505,7 +507,7 @@
 
     <script>
         const DEFAULT_PORTFOLIO = [
-            { symbol: '00405A', fugleSymbol: '00405A', finnhubSymbol: null, type: '台股持倉', qty: 4000, cost: 8.1231, currency: 'TWD', livePrice: 9.42, history: [9.26, 9.30, 9.35, 9.39, 9.42] },
+            { symbol: '00405A', fugleSymbol: '00405A', finnhubSymbol: null, type: '台股持倉', qty: 4317, cost: 8.2293, currency: 'TWD', livePrice: 9.42, history: [9.26, 9.30, 9.35, 9.39, 9.42] },
             { symbol: 'SPCX', fugleSymbol: null, finnhubSymbol: 'SPCX', type: '美股長投', qty: 10, cost: 133.63, currency: 'USD', livePrice: 192.50, history: [189.2, 190.5, 191.1, 191.8, 192.5] },
             // cost（均價）此次未提供，暫以固定本金反推的參考值；損益只看 costTWD，不受影響，可直接在畫面上改
             // staking.startTime = 2026-10-06 19:01:16 (+08:00)，之後每小時複利（年利率 1%）
@@ -532,13 +534,14 @@
         const TW_API_BASE = '';
 
         // 版本號提升為 v10：持倉數量/成本已更新，需捨棄舊快取才不會被覆蓋回舊值
-        const STORAGE_KEY = 'asset_portfolio_v30';
+        const STORAGE_KEY = 'asset_portfolio_v31';
+        const LEGACY_STORAGE_KEY = 'asset_portfolio_v30';
 
         // 深度合併本地快取：保留使用者手動編輯的「數量/成本」，
         // 但「即時價/走勢」一律改用最新預設值起步（避免舊版過時快取價殘留），
         // 隨後由各 API 在同步時覆蓋為真值。
         let cachedPortfolio = null;
-        try { cachedPortfolio = JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch (e) { cachedPortfolio = null; }
+        try { cachedPortfolio = JSON.parse(localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY)); } catch (e) { cachedPortfolio = null; }
 
         let portfolio = DEFAULT_PORTFOLIO.map(d => ({ ...d, history: [...d.history] }));
 
@@ -569,6 +572,8 @@
                     ...def,
                     qty: match.qty ?? def.qty,
                     cost: match.cost ?? def.cost,
+                    ...(Number.isFinite(match.costTWD) ? { costTWD: match.costTWD } : Number.isFinite(def.costTWD) ? { costTWD: def.costTWD } : {}),
+                    manualPriceLocked: match.manualPriceLocked === true,
                     livePrice: sameMagnitude ? cachedPrice : def.livePrice,
                     history: sameMagnitude && Array.isArray(match.history) && match.history.length
                         ? match.history.slice(-12)
@@ -602,7 +607,7 @@
             }
 
             const hourlyRate = Math.pow(1 + s.apy, 1 / 8760) - 1;
-            const hoursElapsed = Math.max(0, (now - s.baseTime) / 3600000);
+            const hoursElapsed = Math.max(0, Math.floor((now - s.baseTime) / 3600000));
             const newQty = s.baseQty * Math.pow(1 + hourlyRate, hoursElapsed);
 
             if (Number.isFinite(newQty) && newQty > 0) asset.qty = newQty;
@@ -644,7 +649,7 @@
 
         // 統一的真價更新：先比較舊價決定漲跌，再寫入新價，杜絕「先賦值後比較」的順序錯誤
         function applyLivePrice(asset, newPrice, source) {
-            if (!Number.isFinite(newPrice) || newPrice <= 0) return;
+            if (!Number.isFinite(newPrice) || newPrice <= 0 || asset.manualPriceLocked) return;
             // 不論價格有沒有變動，只要成功抓到就記錄來源與時間，方便在畫面上確認「真的有抓到」
             asset.priceSource = source || asset.priceSource || '';
             asset.priceTime = Date.now();
@@ -659,7 +664,7 @@
         // 價格來源與更新時間：讓你一眼確認「這個價格是不是真的抓到的」
         function priceMetaHtml(asset) {
             const auto = asset.fugleSymbol || asset.finnhubSymbol || asset.type === '加密貨幣';
-            if (asset.priceSource === '手動輸入') return `<div class="price-meta">✍ 手動輸入</div>`;
+            if (asset.manualPriceLocked) return `<div class="price-meta warn">🔒 手動鎖價 · <a href="#" onclick="unlockLivePrice('${asset.symbol}');return false" style="color:#60A5FA">恢復自動</a></div>`;
             if (asset.priceTime) {
                 const t = new Date(asset.priceTime).toLocaleTimeString('zh-TW', { hour12: false });
                 const stale = Date.now() - asset.priceTime > 5 * 60 * 1000;
@@ -695,7 +700,9 @@
         }
 
         function updateAssetValue(index, field, value) {
-            portfolio[index][field] = parseFloat(value) || 0;
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed) || parsed < 0) { calculateAndRender(); return; }
+            portfolio[index][field] = parsed;
             // 若使用者手動改動「有複利設定」資產的數量，代表本金異動（存入/提領），
             // 更新複利基準數量；若複利已啟動（已過 startTime），基準時間重設為現在，
             // 之後從這個新起點繼續複利；若複利尚未開始（還沒到 startTime），
@@ -721,12 +728,24 @@
             const direction = (numVal > asset.livePrice) ? 'up' : (numVal < asset.livePrice ? 'down' : 'up');
             asset.livePrice = numVal;
             asset.priceSource = '手動輸入';
+            asset.manualPriceLocked = true;
             asset.priceTime = Date.now();
             pushHistory(asset, numVal);
             persistPortfolio();
             calculateAndRender();
             triggerNeonFlash(`row-${asset.symbol}`, direction);
             triggerNeonFlash(`mobile-card-${asset.symbol}`, direction);
+        }
+
+        function unlockLivePrice(symbol) {
+            const asset = portfolio.find(a => a.symbol === symbol);
+            if (!asset) return;
+            asset.manualPriceLocked = false;
+            asset.priceSource = '';
+            asset.priceTime = null;
+            persistPortfolio();
+            calculateAndRender();
+            triggerManualSync();
         }
 
         function toggleSoundMode() {
@@ -947,10 +966,11 @@
         function firstValid(promises) {
             return new Promise(resolve => {
                 let pending = promises.length;
+                let settled = false;
                 if (!pending) return resolve(null);
                 promises.forEach(p => p.then(
-                    v => { if (v !== null) resolve(v); else if (--pending === 0) resolve(null); },
-                    () => { if (--pending === 0) resolve(null); }
+                    v => { if (settled) return; if (v !== null) { settled = true; resolve(v); } else if (--pending === 0) { settled = true; resolve(null); } },
+                    () => { if (!settled && --pending === 0) { settled = true; resolve(null); } }
                 ));
             });
         }
@@ -1276,11 +1296,12 @@
             const newsContainer = document.getElementById('news-container');
             if (!newsContainer) return;
 
+            // 不使用虛構的即時新聞或相對時間；提供可查證的新聞搜尋入口。
             const newsData = [
-                { title: "台灣半導體與高股息 ETF 資金流向科技股，00405A 獲內資強力支撐", source: "時報財經電子報", time: "20分鐘前", url: "https://news.cnyes.com" },
-                { title: "聯準會最新利率決議釋出降息訊號，美股科技股與 SPCX 淨值重回多頭上升軌道", source: "華爾街見聞", time: "1小時前", url: "https://www.wallstreetcn.com" },
-                { title: "Pepe (PEPE) 迷因幣板塊表現領先，市場關注鏈上大戶動向與交易所資金流向", source: "區塊客", time: "25分鐘前", url: "https://www.pepe.vip" },
-                { title: "外匯市場動態：新台幣兌美元匯率受外資進出影響，短期於當前區塊強勢震盪", source: "經濟日報", time: "42分鐘前", url: "https://money.udn.com" }
+                { title: "00405A 台股最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=00405A&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
+                { title: "SPCX 美股最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=SPCX%20stock&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
+                { title: "PEPE 加密貨幣最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=PEPE%20crypto&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
+                { title: "美元兌新台幣匯率新聞", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=USD%20TWD&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" }
             ];
 
             newsContainer.innerHTML = '';
@@ -1299,6 +1320,24 @@
                 `;
                 newsContainer.appendChild(el);
             });
+        }
+
+        function importData(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            file.text().then(raw => {
+                const incoming = JSON.parse(raw);
+                if (!Array.isArray(incoming) || incoming.length !== portfolio.length || !portfolio.every(a => incoming.some(b => b.symbol === a.symbol && Number.isFinite(b.qty) && b.qty >= 0 && Number.isFinite(b.cost) && b.cost >= 0))) throw new Error('備份格式或資產內容不正確');
+                if (!confirm('確定要用備份覆蓋目前持倉資料嗎？')) return;
+                portfolio = portfolio.map(def => {
+                    const b = incoming.find(a => a.symbol === def.symbol);
+                    const staking = def.staking && b.staking && Number.isFinite(b.staking.baseQty) && b.staking.baseQty >= 0 ? { ...def.staking, ...b.staking, apy: def.staking.apy, startTime: def.staking.startTime } : def.staking;
+                    return { ...def, qty: b.qty, cost: b.cost, costTWD: Number.isFinite(b.costTWD) && b.costTWD >= 0 ? b.costTWD : def.costTWD, ...(staking ? { staking } : {}), manualPriceLocked: b.manualPriceLocked === true, livePrice: Number.isFinite(b.livePrice) && b.livePrice > 0 ? b.livePrice : def.livePrice };
+                });
+                portfolio.forEach(applyStakingCompound);
+                persistPortfolio(); calculateAndRender();
+                alert('備份已還原');
+            }).catch(err => alert('匯入失敗：' + err.message)).finally(() => { event.target.value = ''; });
         }
 
         function exportData() {
