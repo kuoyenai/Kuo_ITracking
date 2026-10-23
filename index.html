@@ -509,9 +509,8 @@
         const DEFAULT_PORTFOLIO = [
             { symbol: '00405A', fugleSymbol: '00405A', finnhubSymbol: null, type: '台股持倉', qty: 4317, cost: 8.2293, currency: 'TWD', livePrice: 9.42, history: [9.26, 9.30, 9.35, 9.39, 9.42] },
             { symbol: 'SPCX', fugleSymbol: null, finnhubSymbol: 'SPCX', type: '美股長投', qty: 10, cost: 133.63, currency: 'USD', livePrice: 192.50, history: [189.2, 190.5, 191.1, 191.8, 192.5] },
-            // cost（均價）此次未提供，暫以固定本金反推的參考值；損益只看 costTWD，不受影響，可直接在畫面上改
-            // staking.startTime = 2026-10-06 19:01:16 (+08:00)，之後每小時複利（年利率 1%）
-            { symbol: 'PEPE', fugleSymbol: null, finnhubSymbol: null, type: '加密貨幣', qty: 94313068.87, cost: 0.00000327, currency: 'USDT', livePrice: 0.00000435, history: [0.00000398, 0.00000412, 0.00000425, 0.00000431, 0.00000435], costTWD: 10000, staking: { apy: 0.01, baseQty: 94313068.87, baseTime: null, startTime: 1791284476000 } }
+            // DOGE 均價以固定本金 NT$10,000、6,147 顆及參考匯率 32.42 反推；損益仍以 costTWD 為準。
+            { symbol: 'DOGE', fugleSymbol: null, finnhubSymbol: null, type: '加密貨幣', qty: 6147, cost: 10000 / 6147 / 32.42, currency: 'USDT', livePrice: 0.08007, history: [0.08007], costTWD: 10000 }
         ];
 
         // Finnhub token（美股直連用）。單一 HTML 自用版，token 會出現在原始碼，
@@ -533,7 +532,7 @@
         // 例：'https://你的專案.vercel.app'。填了之後台股會優先走自己的 API，公開代理只當備援。
         const TW_API_BASE = '';
 
-        // 版本號提升為 v10：持倉數量/成本已更新，需捨棄舊快取才不會被覆蓋回舊值
+        // 持倉依 symbol 合併快取：更換幣種時採用新預設值，其他持倉保留手動設定。
         const STORAGE_KEY = 'asset_portfolio_v31';
         const LEGACY_STORAGE_KEY = 'asset_portfolio_v30';
 
@@ -872,7 +871,7 @@
             } catch (e) { return false; }
         }
 
-        // PEPE（Pepe，ERC-20 迷因幣）在幣安有正式現貨掛牌，以幣安為主要來源；
+        // DOGE（Dogecoin，狗狗幣）以幣安現貨為主要來源；
         // CoinGecko、MEXC 作備援（避免幣安在部分地區/瀏覽器環境被擋時整條斷線）。
         const BINANCE_HOSTS = [
             'https://data-api.binance.vision',  // 公開行情專用節點，CORS 最友善，優先
@@ -881,12 +880,12 @@
             'https://api2.binance.com',
             'https://api3.binance.com'
         ];
-        const CRYPTO_PAIR = 'PEPEUSDT';        // 幣安現貨對（主要來源）
-        const COINGECKO_ID = 'pepe';           // CoinGecko 幣種 id（Pepe，非其他同名幣）
-        const MEXC_PAIR = 'PEPEUSDT';          // MEXC 現貨對（備援）
+        const CRYPTO_PAIR = 'DOGEUSDT';        // 幣安現貨對（主要來源）
+        const COINGECKO_ID = 'dogecoin';       // CoinGecko 狗狗幣 id
+        const MEXC_PAIR = 'DOGEUSDT';          // MEXC 現貨對（備援）
 
         // 幣安：回傳 { symbol, price }（主要來源）
-        async function fetchBinancePepe() {
+        async function fetchBinanceDoge() {
             for (const host of BINANCE_HOSTS) {
                 try {
                     const res = await fetchWithTimeout(`${host}/api/v3/ticker/price?symbol=${CRYPTO_PAIR}`, {}, 5000);
@@ -899,8 +898,8 @@
             return null;
         }
 
-        // CoinGecko：免 key、支援 CORS，回傳 { pepe: { usd: 0.00000435 } }（備援）
-        async function fetchCoingeckoPepe() {
+        // CoinGecko：免 key、支援 CORS，回傳 { dogecoin: { usd: 0.08007 } }（備援）
+        async function fetchCoingeckoDoge() {
             try {
                 const res = await fetchWithTimeout(
                     `https://api.coingecko.com/api/v3/simple/price?ids=${COINGECKO_ID}&vs_currencies=usd&precision=full`, {}, 6000
@@ -913,7 +912,7 @@
         }
 
         // MEXC：免 key、支援 CORS，回傳 { symbol, price }（備援）
-        async function fetchMexcPepe() {
+        async function fetchMexcDoge() {
             try {
                 const res = await fetchWithTimeout(`https://api.mexc.com/api/v3/ticker/price?symbol=${MEXC_PAIR}`, {}, 6000);
                 if (!res.ok) return null;
@@ -924,14 +923,14 @@
         }
 
         async function syncCrypto() {
-            const asset = portfolio.find(a => a.symbol === 'PEPE');
+            const asset = portfolio.find(a => a.symbol === 'DOGE');
             if (!asset) return false;
 
             // 幣安為主要來源；CoinGecko、MEXC 依序備援
             let src = '幣安';
-            let newPrice = await fetchBinancePepe();
-            if (newPrice === null) { newPrice = await fetchCoingeckoPepe(); src = 'CoinGecko'; }
-            if (newPrice === null) { newPrice = await fetchMexcPepe(); src = 'MEXC'; }
+            let newPrice = await fetchBinanceDoge();
+            if (newPrice === null) { newPrice = await fetchCoingeckoDoge(); src = 'CoinGecko'; }
+            if (newPrice === null) { newPrice = await fetchMexcDoge(); src = 'MEXC'; }
 
             if (newPrice === null) return false; // 三家全失敗，保留快取價
 
@@ -1300,7 +1299,7 @@
             const newsData = [
                 { title: "00405A 台股最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=00405A&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
                 { title: "SPCX 美股最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=SPCX%20stock&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
-                { title: "PEPE 加密貨幣最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=PEPE%20crypto&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
+                { title: "DOGE 加密貨幣最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=DOGE%20crypto&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
                 { title: "美元兌新台幣匯率新聞", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=USD%20TWD&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" }
             ];
 
@@ -1363,3 +1362,4 @@
     </script>
 </body>
 </html>
+
