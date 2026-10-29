@@ -509,9 +509,9 @@
         const DEFAULT_PORTFOLIO = [
             { symbol: '00405A', fugleSymbol: '00405A', finnhubSymbol: null, type: '台股持倉', qty: 4317, cost: 8.2293, currency: 'TWD', livePrice: 9.42, history: [9.26, 9.30, 9.35, 9.39, 9.42] },
             { symbol: 'SPCX', fugleSymbol: null, finnhubSymbol: 'SPCX', type: '美股長投', qty: 10, cost: 133.63, currency: 'USD', livePrice: 192.50, history: [189.2, 190.5, 191.1, 191.8, 192.5] },
-            // PEPE 均價以固定本金 NT$10,000、99,305,464.42 顆及參考匯率 32.42 反推；損益仍以 costTWD 為準。
-            // 台灣時間 2026-10-24 00:00:56 啟動年化 1%、每小時複利，啟動前數量固定。
-            { symbol: 'PEPE', fugleSymbol: null, finnhubSymbol: null, type: '加密貨幣', qty: 99305464.42, cost: 10000 / 99305464.42 / 32.42, currency: 'USDT', livePrice: 0.00000435, history: [0.00000435], costTWD: 10000, staking: { apy: 0.01, baseQty: 99305464.42, baseTime: null, startTime: 1792771256000 } }
+            // PEPE 均價以固定本金 NT$10,000、102,643,492.58 顆及參考匯率 32.42 反推；損益仍以 costTWD 為準。
+            // 台灣時間 2026-10-29 22:01:16 啟動年化 1%、每小時複利，啟動前數量固定。
+            { symbol: 'PEPE', fugleSymbol: null, finnhubSymbol: null, type: '加密貨幣', qty: 102643492.58, cost: 10000 / 102643492.58 / 32.42, currency: 'USDT', livePrice: 0.00000435, history: [0.00000435], costTWD: 10000, staking: { apy: 0.01, baseQty: 102643492.58, baseTime: null, startTime: 1793282476000 } }
         ];
 
         // Finnhub token（美股直連用）。單一 HTML 自用版，token 會出現在原始碼，
@@ -534,8 +534,8 @@
         const TW_API_BASE = '';
 
         // 本次 PEPE 數量與複利排程使用新版本快取，其他持倉保留手動設定。
-        const STORAGE_KEY = 'asset_portfolio_v32';
-        const LEGACY_STORAGE_KEY = 'asset_portfolio_v31';
+        const STORAGE_KEY = 'asset_portfolio_v33';
+        const LEGACY_STORAGE_KEY = 'asset_portfolio_v32';
 
         // 深度合併本地快取：保留使用者手動編輯的「數量/成本」，
         // 但「即時價/走勢」一律改用最新預設值起步（避免舊版過時快取價殘留），
@@ -543,7 +543,7 @@
         let cachedPortfolio = null;
         try {
             const currentCache = localStorage.getItem(STORAGE_KEY);
-            cachedPortfolio = JSON.parse(currentCache || localStorage.getItem(LEGACY_STORAGE_KEY) || localStorage.getItem('asset_portfolio_v30'));
+            cachedPortfolio = JSON.parse(currentCache || localStorage.getItem(LEGACY_STORAGE_KEY) || localStorage.getItem('asset_portfolio_v31') || localStorage.getItem('asset_portfolio_v30'));
             // 舊 PEPE 的數量、手動鎖價及複利基準不沿用，避免覆蓋本次設定。
             if (!currentCache && Array.isArray(cachedPortfolio)) {
                 cachedPortfolio = cachedPortfolio.filter(asset => asset.symbol !== 'PEPE');
