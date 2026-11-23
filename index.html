@@ -509,9 +509,9 @@
         const DEFAULT_PORTFOLIO = [
             { symbol: '00405A', fugleSymbol: '00405A', finnhubSymbol: null, type: '台股持倉', qty: 5000, cost: 7.945268, currency: 'TWD', livePrice: 9.42, history: [9.26, 9.30, 9.35, 9.39, 9.42] },
             { symbol: 'SPCX', fugleSymbol: null, finnhubSymbol: 'SPCX', type: '美股長投', qty: 10, cost: 133.63, currency: 'USD', livePrice: 192.50, history: [189.2, 190.5, 191.1, 191.8, 192.5] },
-            // PEPE 103,273,078.62 顆，固定本金 NT$10,000；成本均價僅供參考，損益以 costTWD 為準。
-            // 台灣時間 2026-11-11 19:59 開始，以年利率 1% 換算每小時複利，完整經過一小時才增加顆數。
-            { symbol: 'PEPE', fugleSymbol: null, finnhubSymbol: null, type: '加密貨幣', qty: 103273078.62, cost: 10000 / 103273078.62 / 32.42, currency: 'USDT', livePrice: 0.00000435, history: [0.00000435], costTWD: 10000, staking: { apy: 0.01, baseQty: 103273078.62, baseTime: null, startTime: 1794398340000 } }
+            // Aethir（ATH）97,811.36 顆，固定本金 NT$10,000；成本均價以參考匯率 32.42 反推，損益以 costTWD 為準。
+            // 首次同步前以成本均價作為參考價格，取得報價後由 API 覆蓋。
+            { symbol: 'ATH', fugleSymbol: null, finnhubSymbol: null, type: '加密貨幣', qty: 97811.36, cost: 10000 / 97811.36 / 32.42, currency: 'USDT', livePrice: 10000 / 97811.36 / 32.42, history: [], costTWD: 10000 }
         ];
 
         // Finnhub token（美股直連用）。單一 HTML 自用版，token 會出現在原始碼，
@@ -533,7 +533,7 @@
         // 例：'https://你的專案.vercel.app'。填了之後台股會優先走自己的 API，公開代理只當備援。
         const TW_API_BASE = '';
 
-        // 本次 00405A 加碼後升級快取，保留其他持倉（含 PEPE 複利設定）。
+        // 持倉依 symbol 合併快取；更換幣種時採用新預設值，其他持倉保留手動設定。
         const STORAGE_KEY = 'asset_portfolio_v36';
         const LEGACY_STORAGE_KEY = 'asset_portfolio_v35';
 
@@ -879,35 +879,23 @@
             } catch (e) { return false; }
         }
 
-        // PEPE（Pepe）以幣安現貨為主要來源；
-        // CoinGecko、MEXC 作備援（避免幣安在部分地區/瀏覽器環境被擋時整條斷線）。
-        const BINANCE_HOSTS = [
-            'https://data-api.binance.vision',  // 公開行情專用節點，CORS 最友善，優先
-            'https://api.binance.com',
-            'https://api1.binance.com',
-            'https://api2.binance.com',
-            'https://api3.binance.com'
-        ];
-        const CRYPTO_PAIR = 'PEPEUSDT';        // 幣安現貨對（主要來源）
-        const COINGECKO_ID = 'pepe';           // CoinGecko Pepe 幣種 id
-        const MEXC_PAIR = 'PEPEUSDT';          // MEXC 現貨對（備援）
+        // Aethir（ATH）以 MEXC 現貨報價為主要來源，CoinGecko 作備援。
+        const MEXC_PAIR = 'ATHUSDT';
+        const COINGECKO_ID = 'aethir';
 
-        // 幣安：回傳 { symbol, price }（主要來源）
-        async function fetchBinancePepe() {
-            for (const host of BINANCE_HOSTS) {
-                try {
-                    const res = await fetchWithTimeout(`${host}/api/v3/ticker/price?symbol=${CRYPTO_PAIR}`, {}, 5000);
-                    if (!res.ok) continue;
-                    const data = await res.json();
-                    const p = parseFloat(data && data.price);
-                    if (Number.isFinite(p) && p > 0) return p;
-                } catch (e) { /* 續試下一個幣安節點 */ }
-            }
-            return null;
+        // MEXC：免 key，回傳 { symbol, price }（主要來源）
+        async function fetchMexcAth() {
+            try {
+                const res = await fetchWithTimeout(`https://api.mexc.com/api/v3/ticker/price?symbol=${MEXC_PAIR}`, {}, 6000);
+                if (!res.ok) return null;
+                const data = await res.json();
+                const p = parseFloat(data && data.price);
+                return (data?.symbol === MEXC_PAIR && Number.isFinite(p) && p > 0) ? p : null;
+            } catch (e) { return null; }
         }
 
-        // CoinGecko：免 key、支援 CORS，回傳 { cardano: { usd: 0.00000435 } }（備援）
-        async function fetchCoingeckoPepe() {
+        // CoinGecko：讀取 aethir.usd（備援）
+        async function fetchCoingeckoAth() {
             try {
                 const res = await fetchWithTimeout(
                     `https://api.coingecko.com/api/v3/simple/price?ids=${COINGECKO_ID}&vs_currencies=usd&precision=full`, {}, 6000
@@ -919,28 +907,15 @@
             } catch (e) { return null; }
         }
 
-        // MEXC：免 key、支援 CORS，回傳 { symbol, price }（備援）
-        async function fetchMexcPepe() {
-            try {
-                const res = await fetchWithTimeout(`https://api.mexc.com/api/v3/ticker/price?symbol=${MEXC_PAIR}`, {}, 6000);
-                if (!res.ok) return null;
-                const data = await res.json();
-                const p = parseFloat(data && data.price);
-                return (Number.isFinite(p) && p > 0) ? p : null;
-            } catch (e) { return null; }
-        }
-
         async function syncCrypto() {
-            const asset = portfolio.find(a => a.symbol === 'PEPE');
+            const asset = portfolio.find(a => a.symbol === 'ATH');
             if (!asset) return false;
 
-            // 幣安為主要來源；CoinGecko、MEXC 依序備援
-            let src = '幣安';
-            let newPrice = await fetchBinancePepe();
-            if (newPrice === null) { newPrice = await fetchCoingeckoPepe(); src = 'CoinGecko'; }
-            if (newPrice === null) { newPrice = await fetchMexcPepe(); src = 'MEXC'; }
+            let src = 'MEXC';
+            let newPrice = await fetchMexcAth();
+            if (newPrice === null) { newPrice = await fetchCoingeckoAth(); src = 'CoinGecko'; }
 
-            if (newPrice === null) return false; // 三家全失敗，保留快取價
+            if (newPrice === null) return false; // 兩家都失敗，保留參考/快取價
 
             const dir = applyLivePrice(asset, newPrice, src);
             if (dir) {
@@ -1307,7 +1282,7 @@
             const newsData = [
                 { title: "00405A 台股最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=00405A&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
                 { title: "SPCX 美股最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=SPCX%20stock&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
-                { title: "PEPE 加密貨幣最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=PEPE%20crypto&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
+                { title: "Aethir（ATH）加密貨幣最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=Aethir%20ATH%20crypto&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
                 { title: "美元兌新台幣匯率新聞", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=USD%20TWD&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" }
             ];
 
@@ -1370,4 +1345,5 @@
     </script>
 </body>
 </html>
+
 
