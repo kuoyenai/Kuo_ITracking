@@ -509,9 +509,9 @@
         const DEFAULT_PORTFOLIO = [
             { symbol: '00405A', fugleSymbol: '00405A', finnhubSymbol: null, type: '台股持倉', qty: 5000, cost: 7.945268, currency: 'TWD', livePrice: 9.42, history: [9.26, 9.30, 9.35, 9.39, 9.42] },
             { symbol: 'SPCX', fugleSymbol: null, finnhubSymbol: 'SPCX', type: '美股長投', qty: 10, cost: 133.63, currency: 'USD', livePrice: 192.50, history: [189.2, 190.5, 191.1, 191.8, 192.5] },
-            // Aethir（ATH）97,811.36 顆，固定本金 NT$10,000；成本均價以參考匯率 32.42 反推，損益以 costTWD 為準。
+            // Sei（SEI）10,494.25 顆，沿用原加密資產固定本金 NT$10,000；損益以 costTWD 為準。
             // 首次同步前以成本均價作為參考價格，取得報價後由 API 覆蓋。
-            { symbol: 'ATH', fugleSymbol: null, finnhubSymbol: null, type: '加密貨幣', qty: 97811.36, cost: 10000 / 97811.36 / 32.42, currency: 'USDT', livePrice: 10000 / 97811.36 / 32.42, history: [], costTWD: 10000 }
+            { symbol: 'SEI', fugleSymbol: null, finnhubSymbol: null, type: '加密貨幣', qty: 10494.25, cost: 10000 / 10494.25 / 32.42, currency: 'USDT', livePrice: 10000 / 10494.25 / 32.42, history: [], costTWD: 10000 }
         ];
 
         // Finnhub token（美股直連用）。單一 HTML 自用版，token 會出現在原始碼，
@@ -534,8 +534,8 @@
         const TW_API_BASE = '';
 
         // 持倉依 symbol 合併快取；更換幣種時採用新預設值，其他持倉保留手動設定。
-        const STORAGE_KEY = 'asset_portfolio_v36';
-        const LEGACY_STORAGE_KEY = 'asset_portfolio_v35';
+        const STORAGE_KEY = 'asset_portfolio_v37';
+        const LEGACY_STORAGE_KEY = 'asset_portfolio_v36';
 
         // 深度合併本地快取：保留使用者手動編輯的「數量/成本」，
         // 但「即時價/走勢」一律改用最新預設值起步（避免舊版過時快取價殘留），
@@ -879,12 +879,12 @@
             } catch (e) { return false; }
         }
 
-        // Aethir（ATH）以 MEXC 現貨報價為主要來源，CoinGecko 作備援。
-        const MEXC_PAIR = 'ATHUSDT';
-        const COINGECKO_ID = 'aethir';
+        // Sei（SEI）以 MEXC 現貨報價為主要來源，CoinGecko 作備援。
+        const MEXC_PAIR = 'SEIUSDT';
+        const COINGECKO_ID = 'sei-network';
 
         // MEXC：免 key，回傳 { symbol, price }（主要來源）
-        async function fetchMexcAth() {
+        async function fetchMexcSei() {
             try {
                 const res = await fetchWithTimeout(`https://api.mexc.com/api/v3/ticker/price?symbol=${MEXC_PAIR}`, {}, 6000);
                 if (!res.ok) return null;
@@ -894,8 +894,8 @@
             } catch (e) { return null; }
         }
 
-        // CoinGecko：讀取 aethir.usd（備援）
-        async function fetchCoingeckoAth() {
+        // CoinGecko：讀取 sei-network.usd（備援）
+        async function fetchCoingeckoSei() {
             try {
                 const res = await fetchWithTimeout(
                     `https://api.coingecko.com/api/v3/simple/price?ids=${COINGECKO_ID}&vs_currencies=usd&precision=full`, {}, 6000
@@ -908,12 +908,12 @@
         }
 
         async function syncCrypto() {
-            const asset = portfolio.find(a => a.symbol === 'ATH');
+            const asset = portfolio.find(a => a.symbol === 'SEI');
             if (!asset) return false;
 
             let src = 'MEXC';
-            let newPrice = await fetchMexcAth();
-            if (newPrice === null) { newPrice = await fetchCoingeckoAth(); src = 'CoinGecko'; }
+            let newPrice = await fetchMexcSei();
+            if (newPrice === null) { newPrice = await fetchCoingeckoSei(); src = 'CoinGecko'; }
 
             if (newPrice === null) return false; // 兩家都失敗，保留參考/快取價
 
@@ -1282,7 +1282,7 @@
             const newsData = [
                 { title: "00405A 台股最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=00405A&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
                 { title: "SPCX 美股最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=SPCX%20stock&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
-                { title: "Aethir（ATH）加密貨幣最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=Aethir%20ATH%20crypto&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
+                { title: "Sei（SEI）加密貨幣最新消息", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=Sei%20SEI%20crypto&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" },
                 { title: "美元兌新台幣匯率新聞", source: "Google 新聞搜尋", time: "開啟最新報導", url: "https://news.google.com/search?q=USD%20TWD&hl=zh-TW&gl=TW&ceid=TW:zh-Hant" }
             ];
 
